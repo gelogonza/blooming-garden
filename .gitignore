@@ -1,0 +1,18 @@
+# dependencies (each package installs its own)
+node_modules/
+
+# stray npm files from an install run in the wrong folder; three lives in controller/
+/package.json
+/package-lock.json
+
+# Blender auto-backups
+*.blend1
+*.blend2
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# build output
+dist/
