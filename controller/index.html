@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shy Garden</title>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+
+    <aside class="hud">
+      <header>
+        <h1>Shy Garden</h1>
+        <span id="mode" class="tag">SIM</span>
+      </header>
+
+      <button id="connect" type="button">Connect device</button>
+      <p id="status">Simulated input</p>
+
+      <dl>
+        <div><dt>Daylight</dt><dd><span class="bar"><i id="light-bar"></i></span><span id="light-val">0%</span></dd></div>
+        <div><dt>Near</dt><dd><span class="bar"><i id="near-bar"></i></span><span id="near-val">—</span></dd></div>
+        <div><dt>Seed</dt><dd><span id="btn-dot" class="dot"></span></dd></div>
+        <div><dt>Sundial</dt><dd><span id="angle-val">0°</span></dd></div>
+        <div><dt>Bloom</dt><dd><span id="swatch" class="swatch"></span></dd></div>
+      </dl>
+
+      <p class="hint" id="hint">
+        Sim: mouse up = daylight · scroll = reach toward the garden · click or Space = plant a seed · R recalibrates
+      </p>
+    </aside>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
