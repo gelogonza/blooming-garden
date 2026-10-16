@@ -97,8 +97,23 @@ scene.add(moonLight, moonLight.target);
 const hemi = new THREE.HemisphereLight('#1d2846', '#0b0806', 0.3);
 scene.add(hemi);
 // flashlight: held a little right and below the eye, casting long tree shadows
-const flashlight = new THREE.SpotLight('#fff1d6', 60, 34, 0.42, 0.5, 1.4);
+// A real 80s flashlight: a hot centre, a faint ring from the reflector, a soft falloff (the cookie texture below),
+// plus a wide, dim spill around the beam so your peripheral vision isn't pitch black.
+const flashlight = new THREE.SpotLight('#fff1d6', 60, 60, 0.5, 0.35, 1.1);
 flashlight.castShadow = true;
+flashlight.map = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d'), r = 128;
+  const grad = g.createRadialGradient(r, r, 0, r, r, r);
+  grad.addColorStop(0.0, '#ffffff'); grad.addColorStop(0.22, '#f4f0e6');   // hot spot
+  grad.addColorStop(0.36, '#9c968a'); grad.addColorStop(0.46, '#c9c2b4');   // dark band, then the reflector ring
+  grad.addColorStop(0.55, '#6e6a62'); grad.addColorStop(0.85, '#2a2826'); grad.addColorStop(1.0, '#000000');
+  g.fillStyle = grad; g.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; return tex;
+})();
+const spill = new THREE.SpotLight('#ffe8c4', 0, 24, 1.05, 1, 1.6);   // no shadows: cheap
+spill.position.set(0.22, -0.28, 0.1);
+camera.add(spill); camera.add(spill.target);
 flashlight.shadow.mapSize.set(1024, 1024);
 flashlight.shadow.camera.near = 0.3;
 flashlight.shadow.bias = -0.0005;
@@ -582,9 +597,10 @@ function tick() {
   if (story.started && story.phase === 'walk') {
     const manual = mode === 'sim' && !autoWalk;
     const move = manual ? (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 0.55 : 0) : 1;   // S = back up slowly
-    ctrl.running = move > 0 && (keys.has('ShiftLeft') || keys.has('ShiftRight')) && !ctrl.hiding;
-    const speed = move * (ctrl.running ? 2.1 : 1) * 0.95 * (0.55 + 0.45 * light) * (lookBack.active ? 0.3 : 1) * (scare || ctrl.hiding || ctrl.eyesClosed ? 0 : 1) * (ctrl.torchOff ? 0.5 : 1) * (1 - ctrl.hideK);            // he slows down in the dark
+    ctrl.running = move > 0 && (keys.has('ShiftLeft') || keys.has('ShiftRight')) && !ctrl.hiding && !ctrl.eyesClosed;   // no running blind
+    const speed = move * (ctrl.running ? 2.1 : 1) * 0.95 * (0.55 + 0.45 * light) * (lookBack.active ? 0.3 : 1) * (scare || ctrl.hiding ? 0 : ctrl.eyesClosed ? 0.45 : 1) * (ctrl.torchOff ? 0.5 : 1) * (1 - ctrl.hideK);            // he slows down in the dark
     story.s = THREE.MathUtils.clamp(story.s + (speed * dt) / world.pathLen, 0, 1);
+    ctrl.blindWalk = ctrl.eyesClosed && speed > 0.05;            // shuffling forward with your eyes shut
     stepPhase += Math.abs(speed) * dt * 1.8;
     const act = ACTS.reduce((a, A, i) => (story.s >= A.at ? i : a), 0);
     if (act !== story.act) {
@@ -672,7 +688,7 @@ function tick() {
   // eyes shut: footsteps circle you, getting closer
   if (ctrl.eyesClosed && tux && threat > 0.1) {
     ctrl.circA += dt * 0.8;
-    ctrl.circR = Math.max(2.2, ctrl.circR - dt * 0.45);
+    ctrl.circR = Math.max(2.2, ctrl.circR - dt * (ctrl.blindWalk ? 0.7 : 0.45));   // walking blind: he closes in faster
     tux.circle(camera, ctrl.circA, ctrl.circR);
     if (t > ctrl.nextStep) { sound.stepAt(panFrom(tux.pos.x, tux.pos.z), 1 - ctrl.circR / 7); ctrl.nextStep = t + 0.5 + Math.random() * 0.25; }
     if (!ctrl.whispered && ctrl.circR < 2.6) { ctrl.whispered = true; sound.whisper(panFrom(tux.pos.x, tux.pos.z)); }
@@ -689,7 +705,7 @@ function tick() {
     const p = world.path.getPointAt(Math.min(s, 1));
     const ahead = world.path.getPointAt(Math.min(1, s + 5 / world.pathLen));
     viewYaw = Math.atan2(-(ahead.x - p.x), -(ahead.z - p.z));
-    const bob = Math.abs(Math.sin(stepPhase * Math.PI)) * (ctrl.running ? 0.09 : 0.05);
+    const bob = Math.abs(Math.sin(stepPhase * Math.PI)) * (ctrl.running ? 0.09 : 0.05) * (1 + ctrl.eyesK * 0.8);   // eyes shut: an unsteady shuffle
     // crouched by a tree: slide in behind the trunk (away from where he'll come down the trail)
     const cx = ctrl.cover ? THREE.MathUtils.lerp(p.x, ctrl.cover.x, ctrl.coverK) : p.x;
     const cz = ctrl.cover ? THREE.MathUtils.lerp(p.z, ctrl.cover.z, ctrl.coverK) : p.z;
@@ -734,16 +750,16 @@ function tick() {
   moonLight.position.copy(camera.position).add(tmp.set(8, 18, -30));
   moonLight.target.position.copy(camera.position);
   hemi.intensity = 0.12 + 0.25 * light;
-  flashlight.intensity = (1 - Math.max(sputter, lowBatt, scareDark)) * (25 + 55 * light) * (0.95 + Math.sin(t * 17) * 0.03) * (ctrl.torchOff ? 0 : 1) * (1 - ctrl.hideK * 0.88);
+  flashlight.intensity = (1 - Math.max(sputter, lowBatt, scareDark)) * (55 + 60 * light) * (0.95 + Math.sin(t * 17) * 0.03) * (ctrl.torchOff ? 0 : 1) * (1 - ctrl.hideK * 0.88);
   faceLight.intensity = scareFrozen ? 0.32 + Math.random() * 0.2 : 0;
   if (scareFrozen) { flashlight.intensity = 1.4 + Math.random() * 0.8; flashlight.target.position.set(-0.22, 0.32, -0.62); }
   else {
     // when you turn around you raise the flashlight into the trees
     aimUp += ((lookBack.active ? 1 : 0) - aimUp) * (1 - Math.exp(-dt * 5));
     flashlight.target.position.set(0.05, THREE.MathUtils.lerp(-0.9, -0.12, aimUp), THREE.MathUtils.lerp(-6, -12, aimUp));
-    flashlight.distance = 34 + aimUp * 16;
+    flashlight.distance = 60 + aimUp * 20;
   }
-  scene.fog.density = 0.03 + (1 - light) * 0.018;
+  scene.fog.density = (0.03 + (1 - light) * 0.018) * (1 - 0.3 * aimUp);   // looking back: your eyes strain into the dark, the beam reaches further
 
   updateMenuScene(dt, t);
 
@@ -765,6 +781,25 @@ function tick() {
   sound.update(dt, { threat, interference: story.started ? interference : 0, menu: !story.started, dark, silence: story.phase === 'end' && story.endT > 10, hiding: ctrl.hideK, blind: ctrl.eyesK });
 
   hwfx.update(t, { playing: story.started, threat, presence, hideK: ctrl.hideK, eyesK: ctrl.eyesK, torchOff: ctrl.torchOff, ending: story.phase === 'end' && story.endT > 10, scare, tux });
+
+  // spill follows the beam; a small hand sway so it feels held, not mounted
+  if (!scareFrozen && story.started) {
+    flashlight.target.position.x += Math.sin(t * 1.3) * 0.05 + Math.sin(t * 3.1) * 0.02;
+    flashlight.target.position.y += Math.sin(t * 1.7 + 1) * 0.04;
+  }
+  // looking back: your hand swings the beam onto whatever shape is standing there (him, or a fake-out scarecrow)
+  const caught = lookBack.active && aimUp > 0.05 && !scareFrozen
+    ? (tux?.root.visible && tux.mode === 'staged' ? tux.root : lookBack.look?.fake && lookBack.fake?.visible ? lookBack.fake : null) : null;
+  if (caught) {
+    const h = caught.position.clone(); h.y += 1.3;
+    camera.updateMatrixWorld();
+    flashlight.target.position.lerp(camera.worldToLocal(h), 0.9 * aimUp);
+    flashlight.intensity *= 1 + 0.7 * aimUp;                     // you hold it steady on him: the beam lands full strength
+    flashlight.decay = THREE.MathUtils.lerp(1.1, 0.95, aimUp);   // a focused beam carries further
+  }
+  if (!caught) flashlight.decay = 1.1;
+  spill.intensity = flashlight.intensity * 0.12;
+  spill.target.position.copy(flashlight.target.position);
 
   // ── HUD ──
   ui.lightBar.style.width = Math.round(light * 100) + '%';

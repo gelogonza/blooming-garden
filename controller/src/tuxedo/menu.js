@@ -16,7 +16,7 @@ const CONTROLS = `
     ${line('SPACE', 'look behind you')}
     ${line('SPACE SPACE', 'flashlight off / on')}
     ${line('SPACE ×3', 'call out')}
-    ${line('E', 'close your eyes')}
+    ${line('E', 'close your eyes. you can still shuffle forward.')}
   </ul>
   <div class="note-head">the box</div>
   <ul>

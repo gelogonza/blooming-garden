@@ -22,7 +22,7 @@ export class LookBack {
     Object.assign(this, { world, sound, getTux, startScare, canScare });
     this.reset();
   }
-  reset() { this.look = null; this.beat = 0; this.lastLookAt = -99; this.forceAt = -1; this.act3Looks = 0; this.lastLurk = ''; }
+  reset() { this.look = null; this.beat = 0; this.lastLookAt = -99; this.forceAt = -1; this.act3Looks = 0; this.lastLurk = ''; this.realNext = false; this.fakes = 0; this.hideFake(); }
   get active() { return !!this.look; }
 
   /** layer 1: how many pumpkins behind you are staring this time */
@@ -37,6 +37,8 @@ export class LookBack {
   decide(s) {
     const next = BEATS[this.beat];
     if (next && s >= next.at) { this.beat++; return next.kind; }
+    // a fake-out last time? then this time it's really him, and closer
+    if (this.realNext) { this.realNext = false; return s < 0.6 ? 'closer' : 'peekNear'; }
     if (!next && Math.random() < 0.1 && this.canScare(20)) return 'scare';
     // random lurks between (and after) the scripted beats
     const p = s < ACT2 ? 0 : s < 0.39 ? 0.3 : s < ACT3 ? 0.5 : 0.65;
@@ -66,7 +68,24 @@ export class LookBack {
       this.look.kind = 'pathFar';
       this.stage('pathFar', s, camera);
     }
+    // FAKE-OUT: sometimes the shape behind you is just the scarecrow (never on a forced/scripted turn, never twice in a row)
+    const lurk = ['pathFar', 'treeFar', 'peek', 'closer'].includes(this.look.kind);
+    if (lurk && !forced && s > ACT2 && !this.realNext && this.fakes < 3 && Math.random() < 0.3) this.fakeOut(camera);
   }
+
+  /** swap him for a scarecrow standing exactly where he would have been */
+  fakeOut(camera) {
+    const tux = this.getTux(), src = this.world.scarecrow;
+    if (!tux || !src) return;
+    if (!this.fake) { this.fake = src.clone(true); this.world.scene.add(this.fake); }
+    const p = tux.root.position;
+    this.fake.position.set(p.x, p.y - 0.15, p.z);                       // sunk a touch: no pole socket out here
+    this.fake.rotation.set(0, Math.atan2(camera.position.x - p.x, camera.position.z - p.z), 0.04);   // facing you, slightly crooked
+    this.fake.visible = true;
+    tux.mode = 'staged'; tux.root.visible = false;                  // frozen out of sight until you look forward again
+    this.look.fake = true; this.realNext = true; this.fakes++;
+  }
+  hideFake() { if (this.fake) this.fake.visible = false; }
 
   /** put him in place behind you before the camera gets there */
   stage(kind, s, camera) {
@@ -78,7 +97,7 @@ export class LookBack {
       const tree = this.peekTree(s, camera, [13, 19]);
       if (tree) tux.peekFrom(tree, camera, 0.62, 0); else ok = false;
     } else if (kind === 'closer') tux.relocate(Math.max(0, s - 13.5 / L), 4.5);          // on the trail ~9 m back
-    else if (kind === 'pathFar') tux.standOnPath(Math.max(0, s - rnd(26, 34) / L), rnd(-0.4, 0.4));   // a shape far down the trail
+    else if (kind === 'pathFar') tux.standOnPath(Math.max(0, s - rnd(18, 25) / L), rnd(-0.4, 0.4));   // a shape far down the trail (inside the beam's reach)
     else if (kind === 'peek' || kind === 'peekNear') {
       const tree = this.peekTree(s, camera, kind === 'peek' ? [9, 15] : [5, 8.5]);
       if (tree) tux.peekFrom(tree, camera); else ok = false;
@@ -135,6 +154,7 @@ export class LookBack {
     if (L.kind === 'scare' && L.fired && !paused) L.hold = Math.min(L.hold, f - L.turn + 0.2);
     const tux = this.getTux();
     if (f > endHold && tux?.mode === 'staged') tux.vanish(5);          // gone when you look forward again
+    if (f > endHold && L.fake) this.hideFake();                        // ...and so is the scarecrow
 
     const k = f < L.turn ? smooth(f, 0, L.turn) : f < endHold ? 1 : 1 - smooth(f, endHold, endHold + L.back);
     if (f > endHold + L.back) this.look = null;
