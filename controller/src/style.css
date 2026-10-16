@@ -54,3 +54,133 @@ dd { display: flex; align-items: center; gap: 8px; }
 .swatch { width: 28px; height: 12px; border-radius: 4px; border: 1px solid var(--line); }
 
 .hint { color: var(--muted); line-height: 1.5; font-size: 11px; }
+
+/* ───────────────────── The Tuxedo Man ───────────────────── */
+body.tuxedo { background: #000; }
+body.tuxedo #scene { cursor: none; }
+.hud.hidden { display: none; }
+
+/* ───────── title screen: he stands in the crimson fog (left), title + menu (right) ───────── */
+#title {
+  position: fixed; inset: 0; z-index: 20; overflow: hidden;
+  color: #d9d4ca; font-family: 'IM Fell Double Pica', 'IM Fell English', serif;
+  /* no letterbox here: the full frame is the key art. darken only the right side for the text */
+  background:
+    linear-gradient(90deg, transparent 38%, rgba(0, 0, 0, 0.35) 62%, rgba(0, 0, 0, 0.7) 100%),
+    radial-gradient(ellipse 85% 80% at 40% 55%, transparent 50%, rgba(0, 0, 0, 0.85) 100%);
+}
+#title::after {                                   /* faint scanlines + breathing */
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.07) 0 1px, transparent 1px 3px);
+  animation: breathe 7s ease-in-out infinite;
+}
+@keyframes breathe { 0%, 100% { opacity: 0.75; } 50% { opacity: 1; } }
+#title .t-grain { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0.035; mix-blend-mode: screen; image-rendering: pixelated; }
+#title .t-fog { position: absolute; inset: -20%; pointer-events: none; opacity: 0.3; mix-blend-mode: screen; }
+#title .t-fog.f1 { background: radial-gradient(ellipse 40% 22% at 30% 70%, rgba(170, 60, 50, 0.35), transparent 70%), radial-gradient(ellipse 35% 20% at 75% 45%, rgba(120, 50, 45, 0.3), transparent 70%); animation: drift 40s linear infinite; }
+#title .t-fog.f2 { background: radial-gradient(ellipse 50% 20% at 55% 80%, rgba(150, 50, 45, 0.3), transparent 70%), radial-gradient(ellipse 30% 18% at 20% 35%, rgba(110, 40, 40, 0.25), transparent 70%); animation: drift 58s linear infinite reverse; }
+@keyframes drift { from { transform: translateX(-8%); } 50% { transform: translateX(8%) translateY(-2%); } to { transform: translateX(-8%); } }
+
+#title .t-inner {
+  position: absolute; right: 9vw; top: 16vh; z-index: 1;
+  display: flex; flex-direction: column; align-items: flex-start; text-align: left;
+}
+/* title: IM Fell Double Pica — a real 17th-century printing type, letters set crooked, edges inked rough */
+#title .t-logo-wrap { animation: emerge 4.5s ease-out both; }
+#title .t-logo { margin: 0; font-family: 'IM Fell Double Pica', Georgia, serif; font-weight: 400; line-height: 0.86; color: #f0a24a; filter: url(#ink); }
+#title .t-logo span { display: block; white-space: nowrap; }
+#title .t-logo i { display: inline-block; font-style: normal; }
+#title .t-logo .the { font-family: 'IM Fell Double Pica SC', serif; font-size: clamp(16px, 1.7vw, 24px); letter-spacing: 0.5em; color: #c9772e; margin: 0 0 0.35em 0.15em; }
+#title .t-logo .l1, #title .t-logo .l2 {
+  font-size: clamp(58px, 9vw, 138px); letter-spacing: 0.02em;
+  /* a low, warm glow — lit from inside, not neon */
+  text-shadow: 0 0 2px rgba(255, 190, 120, 0.5), 0 0 18px rgba(230, 90, 20, 0.45), 0 0 60px rgba(160, 30, 5, 0.35);
+  animation: titleglow 6s ease-in-out infinite;
+}
+#title .t-logo .l2 { letter-spacing: 0.14em; margin-left: 0.04em; }
+@keyframes titleglow {
+  0%, 100% { opacity: 1; }
+  48% { opacity: 0.92; }
+  70% { opacity: 1; }
+  71% { opacity: 0.55; }
+  72% { opacity: 1; }
+}
+#title .t-logo .x { color: #ffcf8a; text-shadow: 0 0 4px #ff9a3c, 0 0 16px #ff5a14, 0 0 40px #c8300a; animation: ember 3.4s ease-in-out infinite; }
+@keyframes ember { 0%, 100% { color: #ffcf8a; } 40% { color: #ffae62; } 42% { color: #ffe0b0; } 70% { color: #ffc47a; } }
+@keyframes emerge { 0% { opacity: 0; filter: blur(14px); } 60% { opacity: 0.85; } 100% { opacity: 1; filter: blur(0); } }
+#title .t-tag {
+  margin-top: 14px; font-family: 'Special Elite', monospace; font-size: clamp(13px, 1.3vw, 17px);
+  letter-spacing: 0.42em; color: #a3241a; text-transform: uppercase; animation: emerge 4.5s ease-out 0.8s both;
+}
+#title .t-press {
+  position: absolute; left: 0; right: 0; bottom: 13vh; z-index: 1; text-align: center;
+  font-family: 'IM Fell Double Pica SC', serif; font-size: clamp(15px, 1.4vw, 19px); letter-spacing: 0.4em; padding-left: 0.4em; color: #cfc6ba;
+  text-shadow: 0 0 8px #000; animation: emerge 2s ease-out 3.2s both, blink 1.6s steps(1) 5.2s infinite;
+}
+@keyframes blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0.15; } }
+#title.menu-open .t-press { display: none; }
+/* Outlast-style list: small labels, the selection is a pale box with dark text */
+#title .t-menu { margin-top: 7vh; display: none; flex-direction: column; gap: 3px; align-items: flex-start; }
+#title.menu-open .t-menu { display: flex; animation: emerge 0.9s ease-out both; }
+#title .t-menu button {
+  background: none; border: 0; cursor: pointer; padding: 3px 12px 3px 10px; margin-left: -10px;
+  font-family: 'IM Fell Double Pica SC', serif; font-weight: 400; font-size: clamp(15px, 1.35vw, 19px); letter-spacing: 0.14em;
+  color: #bdb4a8; text-shadow: 0 1px 6px #000; transition: background 0.15s, color 0.15s;
+}
+#title .t-menu button.on { background: #e2dbcf; color: #140605; text-shadow: none; box-shadow: 0 0 22px rgba(255, 60, 30, 0.25); animation: boxflicker 3.6s steps(1) infinite; }
+@keyframes boxflicker { 0%, 90%, 100% { opacity: 1; } 91% { opacity: 0.6; } 93% { opacity: 1; } 94% { opacity: 0.45; } }
+#title .t-menu button:disabled { color: #4a4540; cursor: default; }
+#title .t-menu button:focus { outline: none; }
+#title .t-status { min-height: 1.4em; margin-top: 12px; font-family: 'Special Elite', monospace; font-size: 13px; letter-spacing: 0.1em; color: #c0402e; }
+/* controls: a found note — aged paper, a strip of tape, typewritten lines, a pen scrawl */
+#title .t-controls {
+  position: fixed; left: 50%; top: 50%; z-index: 6; width: min(420px, 86vw); padding: 0 30px;
+  font-family: 'Special Elite', monospace; font-size: 13.5px; color: #2b241b; text-align: left;
+  background:
+    radial-gradient(ellipse at 18% 12%, rgba(120, 80, 30, 0.22), transparent 40%),
+    radial-gradient(ellipse at 85% 80%, rgba(110, 70, 25, 0.28), transparent 45%),
+    radial-gradient(circle at 70% 30%, rgba(90, 50, 20, 0.12) 0 6%, transparent 7%),
+    linear-gradient(176deg, #d9cfb4, #cdbf9c 60%, #c2b28c);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.7), inset 0 0 40px rgba(80, 50, 15, 0.35);
+  transform: translate(-50%, -46%) rotate(-1.6deg) scale(0.96); pointer-events: none; cursor: pointer;
+  clip-path: polygon(0 1%, 7% 0, 21% 1.2%, 39% 0.2%, 58% 1%, 76% 0, 93% 0.9%, 100% 0.3%, 99.4% 98%, 86% 99.4%, 64% 98.6%, 42% 100%, 23% 98.8%, 6% 99.6%, 0.4% 98.4%);
+  opacity: 0; transition: opacity 0.3s ease, transform 0.45s cubic-bezier(.2, .8, .3, 1);
+  padding: 26px 30px 22px;
+}
+#title .t-controls.open { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) rotate(-1.6deg) scale(1); }
+/* the room goes dark while you read it */
+#title .t-dim { position: fixed; inset: 0; z-index: 5; background: rgba(0, 0, 0, 0.72); opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+#title.reading .t-dim { opacity: 1; pointer-events: auto; }
+#title .t-controls .tape {
+  position: absolute; top: 2px; left: 50%; width: 120px; height: 24px; transform: translateX(-50%) rotate(2.5deg);
+  background: rgba(240, 232, 205, 0.6); box-shadow: 0 1px 2px rgba(60, 40, 10, 0.35);
+  clip-path: polygon(3% 0, 97% 4%, 100% 50%, 96% 100%, 2% 94%, 0 50%);
+}
+#title .t-controls .note-head { margin: 4px 0 6px; font-size: 12px; letter-spacing: 0.25em; color: #5a4a36; }
+#title .t-controls ul { list-style: none; margin: 0 0 14px; padding: 0; }
+#title .t-controls li { display: flex; align-items: baseline; gap: 6px; line-height: 1.75; text-shadow: 0.3px 0.2px 0 rgba(40, 30, 20, 0.6); }
+#title .t-controls li .k { white-space: nowrap; }
+#title .t-controls li .dots { flex: 1; border-bottom: 1.5px dotted rgba(43, 36, 27, 0.55); transform: translateY(-4px); }
+#title .t-controls li .v { white-space: nowrap; }
+#title .t-controls li:nth-child(3n) { opacity: 0.86; }                 /* the ribbon was running dry */
+#title .t-controls .scrawl {
+  margin: 4px -6px 0 0; text-align: right; font-family: 'Reenie Beanie', cursive; font-size: 25px; line-height: 1;
+  color: #8a1410; transform: rotate(-3deg); opacity: 0.9;
+}
+#title .t-foot { position: absolute; bottom: 4vh; right: 9vw; z-index: 1; font-family: 'Cinzel', serif; font-size: 10px; letter-spacing: 0.32em; color: #6a625a; }
+#title .t-black { position: absolute; inset: 0; z-index: 5; background: #000; opacity: 0; pointer-events: none; transition: opacity 1.4s ease-in; }
+#title.starting .t-black { opacity: 1; }
+#title.gone { background: none; pointer-events: none; }
+#title.gone > :not(.t-black) { display: none; }
+#title.gone .t-black { opacity: 0; transition: opacity 3.5s ease-out 0.4s; }
+#title.gone::after { display: none; }
+#title .t-menu button small { font-size: 0.72em; letter-spacing: 0.18em; opacity: 0.6; margin-left: 0.4em; }
+/* in-game act / checkpoint title cards (sit in the lower letterbox bar) */
+#cards {
+  position: fixed; left: 0; right: 0; bottom: 6vh; z-index: 15; text-align: center; pointer-events: none;
+  font-family: 'IM Fell English SC', Georgia, serif; color: #efe6d6;
+  opacity: 0; transition: opacity 1.6s ease;
+}
+#cards.on { opacity: 1; }
+#cards .card-main { font-size: clamp(22px, 3.2vw, 44px); letter-spacing: 0.12em; text-shadow: 0 0 18px rgba(0, 0, 0, 0.9); }
+#cards .card-sub { margin-top: 6px; font-size: clamp(13px, 1.4vw, 18px); letter-spacing: 0.45em; color: #c06a30; text-transform: uppercase; }
