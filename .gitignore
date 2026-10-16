@@ -16,3 +16,4 @@ node_modules/
 
 # build output
 dist/
+_to_delete/
