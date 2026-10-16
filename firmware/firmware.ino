@@ -9,7 +9,14 @@
 #include <Adafruit_NeoPixel.h>
 
 const int LDR_PIN = A0, BTN_PIN = 2, SERVO_PIN = 9, LED_PIN = 6;
-const int IR_PIN = A1;                 // Sharp GP2Y0A21 IR distance sensor (yellow wire)
+const int IR_PIN = A1;                 // Sharp IR sensor (yellow wire)
+// Which Sharp is fitted:
+//   1 = GP2Y0D02YK0F (digital, ~80 cm on/off). Mine only swings 0.00 -> ~0.30 V, so we read it
+//       with analogRead against a baseline measured at boot (see my field guide entry).
+//   0 = GP2Y0A21YK0F (analog distance, 10-80 cm).
+#define IR_DIGITAL 1
+const int IR_NEAR_CM = 20;             // what a digital "detected" reports: inside the game's 10-50 cm window
+int irBaseline = 0;
 
 Servo servo;
 Adafruit_NeoPixel led(1, LED_PIN, NEO_GRB + NEO_KHZ800);
@@ -22,7 +29,7 @@ void setup() {
   Serial.begin(115200);
   pinMode(BTN_PIN, INPUT_PULLUP);      // pressed = LOW
   servo.attach(SERVO_PIN);
-  servo.write(0);
+  servo.write(90);                     // rest in the middle so twitches can go both ways
   led.begin();
   led.setBrightness(80);
   led.show();
@@ -36,6 +43,12 @@ void setup() {
   }
   led.clear();
   led.show();
+
+#if IR_DIGITAL
+  long sum = 0;                         // 1 s baseline: keep your hand away from the sensor while it boots
+  for (int i = 0; i < 50; i++) { sum += analogRead(IR_PIN); delay(20); }
+  irBaseline = sum / 50;
+#endif
 
   Serial.println("READY");             // browser waits for this before sending
 }
@@ -70,6 +83,12 @@ void loop() {
 // with the power-law fit from the datasheet graph. Averaging 5 reads tames noise.
 // Valid range is 10-80 cm; closer than 10 cm the reading folds back (looks farther).
 int readCm() {
+#if IR_DIGITAL
+  static byte agree = 0; static bool near = false;
+  bool now = analogRead(IR_PIN) > irBaseline + 20;   // +20 counts ~ +0.1 V
+  if (now != near) { if (++agree >= 3) { near = now; agree = 0; } } else agree = 0;   // 3 matching samples
+  return near ? IR_NEAR_CM : 0;
+#endif
   long sum = 0;
   for (byte i = 0; i < 5; i++) sum += analogRead(IR_PIN);
   float volts = (sum / 5.0) * 5.0 / 1023.0;

@@ -6,7 +6,9 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { isSupported, connect, disconnect } from '../serial.js';
+import { isSupported, connect, disconnect, send } from '../serial.js';
+import { HardwareFX } from './hardware.js';
+import { Overlay } from './overlay.js';
 import { World, GRAVEYARD } from './world.js';
 import { TuxedoMan } from './tuxedo.js';
 import { NightSky } from './sky.js';
@@ -43,6 +45,11 @@ const input = { light: 0.8, near: 0, cm: null, button: false };
 if (params.has('light')) input.light = +params.get('light');
 if (params.has('near')) input.near = +params.get('near');
 let mode = 'sim', hwReady = false;
+const hwfx = new HardwareFX(send);   // NeoPixel pumpkin + twitching servo prop
+const overlay = new Overlay();       // death screen + sensor check
+// scares that are YOUR mistake end the run (back to the last checkpoint); scripted ones you live through
+const FATAL = new Set(['caught', 'hand']);
+let deadPrevBtn = true;
 const cal = { min: Infinity, max: -Infinity };
 const normalize = (raw) => { cal.min = Math.min(cal.min, raw); cal.max = Math.max(cal.max, raw); return THREE.MathUtils.clamp((raw - cal.min) / Math.max(cal.max - cal.min, 40), 0, 1); };
 const NEAR_CM = 10, FAR_CM = 50;
@@ -142,6 +149,7 @@ const gestures = new ButtonGestures();
 const ctrl = {
   torchOff: false,                       // 2 clicks: you turned the flashlight off
   hiding: false, hideK: 0, passing: false, // hold: crouch, hold your breath
+  cover: null, coverK: 0, spotted: false,  // crouching beside a trunk: you duck in behind it
   callCool: 0, callBoost: 0, answerAt: -1, // 3 clicks: "Hello?"
   simEyes: false, coverT: 0, eyesClosed: false, eyesK: 0, circA: 0, circR: 7, nextStep: 0, whispered: false, // covered sensor
 };
@@ -164,6 +172,26 @@ function startScare(windup = 0.75, source = 'hand') {
 }
 let lastFlashAt = -10;
 
+/** nearest trunk within reach of the trail where you're standing; the cover spot is on its far side from where he'll come */
+function findCover(s) {
+  const here = world.path.getPointAt(Math.min(s, 1));
+  const from = world.path.getPointAt(Math.min(0.99, s + 13 / world.pathLen));   // he walks down the trail toward you
+  let best = null, bestD = 5.5;
+  for (const tr of world.hideTrees) {
+    const d = Math.hypot(tr.x - here.x, tr.z - here.z);
+    if (d < bestD) { bestD = d; best = tr; }
+  }
+  if (!best) return null;
+  let ux = best.x - from.x, uz = best.z - from.z; const L = Math.hypot(ux, uz) || 1; ux /= L; uz /= L;
+  return { tx: best.x, tz: best.z, x: best.x + ux * 0.8, z: best.z + uz * 0.8 };
+}
+/** does the trunk sit between him and you? (distance from the trunk to the line of sight, in the ground plane) */
+function trunkBlocks(cover, a, b) {
+  const vx = b.x - a.x, vz = b.z - a.z, L2 = vx * vx + vz * vz || 1;
+  const k = Math.max(0, Math.min(1, ((cover.tx - a.x) * vx + (cover.tz - a.z) * vz) / L2));
+  return Math.hypot(a.x + vx * k - cover.tx, a.z + vz * k - cover.tz) < 0.55;
+}
+
 function begin(fromSave = false) {
   if (story.started) return;
   const save = fromSave && readSave();
@@ -175,6 +203,7 @@ function begin(fromSave = false) {
   }
   story.started = true;
   story.startedAt = timer.getElapsed();
+  if (mode === 'hardware' && hwReady && !save) startCalibration(timer.getElapsed());
   sound.start();
   sound.menuMusic(false);           // belt and braces: no title music in the game, however we got here
 }
@@ -186,12 +215,56 @@ const makeMenu = () => {
 let menu = makeMenu();
 if (story.started) menu.skip();
 
+/** you died: hold on a black VHS screen until you press the button */
+function die(t) {
+  story.phase = 'dead'; story.deadAt = t; deadPrevBtn = true;
+  ctrl.hiding = false; ctrl.passing = false;
+  const act = Math.max(0, story.act);
+  overlay.show({ tag: 'STOP ■', main: 'HE FOUND YOU', sub: `continue from act ${ACTS[act].title.replace('.', '')}`, hint: mode === 'hardware' ? 'press the button' : 'click or press space' });
+}
+function continueFromCheckpoint() {
+  const act = Math.max(0, story.act);
+  resetLoop();
+  story.s = ACTS[act].at + 0.001; story.act = act;
+  lookBack.beat = BEATS.findIndex((b) => b.at > story.s); if (lookBack.beat < 0) lookBack.beat = BEATS.length;
+  if (story.s >= 0.72) story.scripted = 'done';
+  story.phase = 'walk';
+  overlay.hide();
+  cards.show(ACTS[act].title + ' ' + ACTS[act].name, 'rewind', 3.5);
+}
+
+/** before Act I on real hardware: prove both sensors work in this room (and seed the light calibration) */
+const CAL_STEPS = [
+  { main: 'HOLD YOUR HAND OUT', sub: 'in front of the distance sensor', ok: () => input.near > 0.3 },
+  { main: 'TAKE IT AWAY', sub: 'he has to be the only thing out there', ok: () => input.near === 0 },
+  { main: 'COVER THE LIGHT SENSOR', sub: 'that is how you close your eyes', ok: () => input.light < 0.12 },
+  { main: 'UNCOVER IT', sub: 'that is the moon', ok: () => input.light > 0.6 },
+];
+let calib = null;
+function startCalibration(t) {
+  story.phase = 'calib'; calib = { step: 0, t0: t, okT: 0 }; deadPrevBtn = true;
+  const S = CAL_STEPS[0];
+  overlay.show({ tag: 'SENSOR CHECK', main: S.main, sub: S.sub, black: false });
+}
+function updateCalibration(t, dt) {
+  const S = CAL_STEPS[calib.step];
+  calib.okT = S.ok() ? calib.okT + dt : 0;
+  if (t - calib.t0 > 8) overlay.hint('stuck? press the button to skip');
+  const skip = input.button && !deadPrevBtn;
+  if (calib.okT > 0.5 || skip) {
+    calib.step++; calib.t0 = t; calib.okT = 0;
+    if (calib.step >= CAL_STEPS.length) { calib = null; overlay.hide(); story.phase = 'walk'; story.startedAt = t; return; }
+    const N = CAL_STEPS[calib.step];
+    overlay.show({ tag: 'SENSOR CHECK', main: N.main, sub: N.sub, black: false });
+  }
+}
+
 /** after the ending: reset the whole night and put the title screen back up */
 function returnToMenu() {
   clearSave();                         // you finished the night: nothing to load
   resetLoop();
   story.started = false; story.pendingCard = undefined;
-  cards.hide();
+  cards.hide(); overlay.hide(); calib = null;
   Object.assign(menuScene, { shot: -1, t: 0, step: 0, placed: false, wasMenu: true, aimOff: null });
   sound.gameStarted = false;           // the title music is allowed again
   menu = makeMenu();                   // fresh title screen (LOAD GAME is gone: the save was spent at the end)
@@ -199,7 +272,7 @@ function returnToMenu() {
 }
 
 function resetLoop() {
-  Object.assign(ctrl, { torchOff: false, hiding: false, hideK: 0, passing: false, callBoost: 0, answerAt: -1, eyesClosed: false, eyesK: 0, coverT: 0 });
+  Object.assign(ctrl, { torchOff: false, hiding: false, hideK: 0, passing: false, cover: null, coverK: 0, spotted: false, callBoost: 0, answerAt: -1, eyesClosed: false, eyesK: 0, coverT: 0 });
   gestures.reset(); lookBack.reset();
   scare = null; film.uniforms.uGlitch.value = 0; story.scripted = null;
   story.s = 0; story.phase = 'walk'; story.endT = 0; story.act = -1;
@@ -257,8 +330,8 @@ ui.connect.addEventListener('click', async () => {
         input.button = button;
         if (cm !== null) { input.cm = cm; input.near = cmToNear(cm); }
       },
-      onReady: () => { hwReady = true; ui.status.textContent = 'Connected — he is listening'; menuStatus('Arduino connected — he is listening'); },
-      onClose: () => { hwReady = false; input.button = false; input.near = 0; input.cm = null; setMode('sim', 'Disconnected — back to simulated'); },
+      onReady: () => { hwReady = true; hwfx.setEnabled(true); ui.status.textContent = 'Connected — he is listening'; menuStatus('Arduino connected — he is listening'); },
+      onClose: () => { hwReady = false; hwfx.setEnabled(false); input.button = false; input.near = 0; input.cm = null; setMode('sim', 'Disconnected — back to simulated'); },
     });
     cal.min = Infinity; cal.max = -Infinity;
     setMode('hardware', 'Waiting for board…');
@@ -490,12 +563,20 @@ function tick() {
         film.uniforms.uFade.value = story.phase === 'end' ? 1 : (k < 1.3 ? 1 : 1 - smooth(k, 1.3, 1.9));
         film.uniforms.uGlitch.value = k < 1.3 ? 0 : 0.4 * (1 - smooth(k, 1.3, 2.2));
       }
-      if (k > 2.2) { scare = null; film.uniforms.uGlitch.value = 0; if (story.phase !== 'end') film.uniforms.uFade.value = 0; }
+      if (k > 2.2) {
+        const fatal = FATAL.has(scare.source) && story.phase === 'walk';
+        scare = null; film.uniforms.uGlitch.value = 0; if (story.phase !== 'end') film.uniforms.uFade.value = 0;
+        if (fatal) die(t);
+      }
     }
   }
   const scareFrozen = scare && scare.hit && !scare.cut;
 
   dark = Math.max(dark, scareDark);
+  // ── death screen / sensor check: wait for the player ──
+  if (story.phase === 'dead' && t - story.deadAt > 1.2 && input.button && !deadPrevBtn) continueFromCheckpoint();
+  if (story.phase === 'calib') updateCalibration(t, dt);
+  deadPrevBtn = input.button;
   // ── story progression ──
   const threat = Math.min(1, Math.max(storyThreat(story.s), presence * 0.95) + ctrl.callBoost + (ctrl.running ? 0.08 : 0) + (story.phase === 'end' ? 0.3 : 0));
   if (story.started && story.phase === 'walk') {
@@ -554,7 +635,8 @@ function tick() {
   if (ev?.type === 'holdEnd') ctrl.holdBtn = false;
   const wantHide = walking && (ctrl.holdBtn || keys.has('AltLeft') || keys.has('AltRight') || keys.has('KeyC'));
   if (wantHide && !ctrl.hiding && !busy && !lookBack.active) {          // hold: hide
-    ctrl.hiding = true;
+    ctrl.hiding = true; ctrl.spotted = false;
+    ctrl.cover = findCover(story.s);
     if (tux && threat > 0.12 && tux.mode !== 'doorway') { tux.startPass(story.s); ctrl.passing = true; }
   }
   if (!wantHide && ctrl.hiding) {
@@ -565,6 +647,17 @@ function tick() {
     }
     ctrl.passing = false;
   }
+  // while he walks past: behind a trunk you're safe; out in the open he sees you, unless your flashlight is off
+  if (ctrl.passing && tux?.mode === 'passing' && !ctrl.spotted && !scare && tux.distance < 4.5 && tux.passS > story.s + 1.5 / world.pathLen) {   // only while he's still coming toward you; once past, he faces away
+    const hidden = (ctrl.cover && ctrl.coverK > 0.6 && trunkBlocks(ctrl.cover, tux.pos, camera.position)) || ctrl.torchOff;
+    if (!hidden) {
+      ctrl.spotted = true;
+      tux.noticeYou(story.s); ctrl.callBoost = Math.max(ctrl.callBoost, 0.25);
+      if (t - lastScareAt > 4) startScare(0.35, 'caught');
+    }
+  }
+  ctrl.coverK += ((ctrl.hiding && ctrl.cover ? 1 : 0) - ctrl.coverK) * (1 - Math.exp(-dt * 3));
+  if (!ctrl.hiding && ctrl.coverK < 0.02) ctrl.cover = null;
   if (ctrl.passing && tux?.passDone) { tux.vanish(12); ctrl.passing = false; }   // you made it
   ctrl.hideK += ((ctrl.hiding ? 1 : 0) - ctrl.hideK) * (1 - Math.exp(-dt * 5));
   // the answer to your call: knocking out in the dark, and he moves in
@@ -597,7 +690,10 @@ function tick() {
     const ahead = world.path.getPointAt(Math.min(1, s + 5 / world.pathLen));
     viewYaw = Math.atan2(-(ahead.x - p.x), -(ahead.z - p.z));
     const bob = Math.abs(Math.sin(stepPhase * Math.PI)) * (ctrl.running ? 0.09 : 0.05);
-    camera.position.set(p.x, world.height(p.x, p.z) + 1.66 + bob - ctrl.hideK * 0.75, p.z);
+    // crouched by a tree: slide in behind the trunk (away from where he'll come down the trail)
+    const cx = ctrl.cover ? THREE.MathUtils.lerp(p.x, ctrl.cover.x, ctrl.coverK) : p.x;
+    const cz = ctrl.cover ? THREE.MathUtils.lerp(p.z, ctrl.cover.z, ctrl.coverK) : p.z;
+    camera.position.set(cx, world.height(cx, cz) + 1.66 + bob - ctrl.hideK * 0.75, cz);
     // footsteps on each half step
     if (story.phase === 'walk' && Math.floor(stepPhase) !== lastStep) { lastStep = Math.floor(stepPhase); sound.footstep(); }
   }
@@ -667,6 +763,8 @@ function tick() {
   decor.update(dt, t, presence, camera, story.s);
   sky.update(t, camera, 1 - light);
   sound.update(dt, { threat, interference: story.started ? interference : 0, menu: !story.started, dark, silence: story.phase === 'end' && story.endT > 10, hiding: ctrl.hideK, blind: ctrl.eyesK });
+
+  hwfx.update(t, { playing: story.started, threat, presence, hideK: ctrl.hideK, eyesK: ctrl.eyesK, torchOff: ctrl.torchOff, ending: story.phase === 'end' && story.endT > 10, scare, tux });
 
   // ── HUD ──
   ui.lightBar.style.width = Math.round(light * 100) + '%';
