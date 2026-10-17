@@ -59,7 +59,7 @@ You walk the trail toward the house. Four acts, each one a checkpoint:
 - **Sometimes it's not him.** About a third of random look-backs from Act II on, the shape on the trail is just the scarecrow. The next time you turn around, it's really him, and closer.
 - **Your hand is a risk.** Reach toward the sensor and his head tilts, he looms, he reaches back. Hold it there too long and he lunges.
 - **Hiding takes cover.** Hold the button to crouch. Near a trunk you duck in behind it and he walks right past you. Out in the open he sees you, unless your flashlight is off. Stand up too soon and he stops, and turns.
-- **Closing your eyes** slows you to a blind shuffle. You hear him circling, and he closes in faster while you keep walking. Wherever the footsteps stop, that's where he is when you open them.
+- **Closing your eyes** slows you to a blind shuffle. You hear him circling. Stand still and he keeps his distance; keep walking and he closes in. The static tells you where he is: loud means he's in front of you, so wait for it to fade before you open them.
 - **Some mistakes end the run.** Get spotted while crouching, or hold your hand out too long, and the screen cuts to *HE FOUND YOU*. Press the button to rewind to the start of the act. The scripted scares you live through.
 
 With the Arduino connected, a new game opens with a quick **sensor check**: hand out, hand away, cover the light sensor, uncover it. The button skips a step.

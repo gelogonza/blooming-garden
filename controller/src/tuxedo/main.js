@@ -688,7 +688,10 @@ function tick() {
   // eyes shut: footsteps circle you, getting closer
   if (ctrl.eyesClosed && tux && threat > 0.1) {
     ctrl.circA += dt * 0.8;
-    ctrl.circR = Math.max(2.2, ctrl.circR - dt * (ctrl.blindWalk ? 0.7 : 0.45));   // walking blind: he closes in faster
+    // standing still with your eyes shut: he circles but keeps his distance (3.4 m, outside grabbing range).
+    // walking blind: he closes in (to 2.2 m), and if you stop he drifts back out.
+    if (ctrl.blindWalk) ctrl.circR = Math.max(2.2, ctrl.circR - dt * 0.5);
+    else ctrl.circR = ctrl.circR > 3.4 ? Math.max(3.4, ctrl.circR - dt * 0.45) : Math.min(3.4, ctrl.circR + dt * 0.3);
     tux.circle(camera, ctrl.circA, ctrl.circR);
     if (t > ctrl.nextStep) { sound.stepAt(panFrom(tux.pos.x, tux.pos.z), 1 - ctrl.circR / 7); ctrl.nextStep = t + 0.5 + Math.random() * 0.25; }
     if (!ctrl.whispered && ctrl.circR < 2.6) { ctrl.whispered = true; sound.whisper(panFrom(tux.pos.x, tux.pos.z)); }
@@ -769,6 +772,12 @@ function tick() {
     tux.update(dt, t, { s, threat, dark: story.phase === 'end' ? 0 : dark, presence, camera });
     // static = him: on screen it builds from 22 m in; off screen only when he's right behind / beside you
     if (tux.root.visible) interference = tux.isOnScreen(camera) ? smooth(tux.distance, 22, 3.5) : smooth(tux.distance, 8, 2.5) * 0.6;
+    // eyes shut: the static is your only sense of where he is. Loud = he's in front of you (don't open). Fading = he's behind.
+    if (ctrl.eyesClosed && tux.mode === 'circling') {
+      const rel = Math.atan2(Math.sin(ctrl.circA - camera.rotation.y - Math.PI), Math.cos(ctrl.circA - camera.rotation.y - Math.PI));
+      const front = Math.min(1, Math.max(0, (Math.cos(rel) - 0.3) / 0.5));
+      interference = 0.06 + smooth(ctrl.circR, 7, 2.5) * front;
+    }
   }
   film.uniforms.uInterference.value = scareFrozen ? 0.3 : interference * (story.started ? 1 : 0.3);
   film.uniforms.uRed.value = smooth(threat, 0.75, 1) * (tux?.root.visible ? 1 : 0.3);
